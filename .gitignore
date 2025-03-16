@@ -1,3 +1,4 @@
 .env
 ns.json
 *.pyc
+/db
