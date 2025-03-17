@@ -1,5 +1,5 @@
 import json
-from API import ProgramUtils, Accounts_API
+from . import coolStuff, account_API
 from operator import itemgetter
 import requests
 
@@ -21,7 +21,7 @@ def updateSubRoomData(SubRoomData: dict):
 
 def updateRoomData(RoomData: dict, playerId=0):
     IsDeveloperOwned = False
-    player = Accounts_API.getPlayerById(RoomData["CreatorAccountId"])
+    player = account_API.getPlayerById(RoomData["CreatorAccountId"])
     if player["isDeveloper"]:
         IsDeveloperOwned = True
     RoomData.update({
@@ -183,7 +183,7 @@ def makeNewSave(playerId: int, subRoomId: int, blobName: str, UnityAssetId, Desc
         "SavedOnPlatform": platform,
         "SavedOnDeviceClass": deviceClass,
         "Description": Description,
-        "CreatedAt": ProgramUtils.getCurrentTime(),
+        "CreatedAt": coolStuff.getCurrentTime(),
         "UnityAssetId": UnityAssetId
     }
     SubRoomdataHistorys.append(CurrentSave)
@@ -213,7 +213,7 @@ def makeDormRoom(playerId: int):
     newRoom ={
         "Accessibility": 0,
         "CloningAllowed": False,
-        "CreatedAt": ProgramUtils.getCurrentTime(),
+        "CreatedAt": coolStuff.getCurrentTime(),
         "CreatorAccountId": playerId,
         "CustomWarning": "",
         "DataBlob": None,
@@ -319,7 +319,7 @@ def CloneRoom(RoomId: int, Name: str, playerId: int):
     newRoom ={
         "Accessibility": 0,
         "CloningAllowed": False,
-        "CreatedAt": ProgramUtils.getCurrentTime(),
+        "CreatedAt": coolStuff.getCurrentTime(),
         "CreatorAccountId": playerId,
         "CustomWarning": "",
         "DataBlob": None,

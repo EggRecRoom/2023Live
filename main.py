@@ -28,7 +28,7 @@ dbPath = "db\\"
 
 name = f"{__name__}.py"
 
-DefaultAvatar = items_API.getDefaultAvatar()
+DefaultAvatar = items_API.getAvatar()
 
 debug = True
 
@@ -103,6 +103,11 @@ def q405(e):
 def test():
     websocket.sendToAllPlayers(websocket.makeNotification(websocket.MessageTypes2.ModerationQuitGame, {}))
     return "Done kicked all players"
+
+@app.route("/debug/1", methods=["GET"])
+def test2():
+    websocket.sendToAllPlayers(websocket.makeNotification(websocket.MessageTypes2.ModerationUpdateRequired, {}))
+    return "Done test"
 
 @app.route("/api/versioncheck/v4", methods=["GET"])
 def apiversioncheckv4():
@@ -285,6 +290,12 @@ def apiavatarv2(playerId):
         if int(avatar["id"]) == int(playerId):
             return jsonify(avatar["avatarData"])
     return abort(500)
+
+
+@app.route("/api/avatar/v2/set", methods=["POST"])
+@NeedToken
+def apiavatav2set(playerId):
+    return ""
 
 @app.route("/api/avatar/v4/items", methods=["GET"])
 @NeedToken
@@ -479,6 +490,19 @@ def room(playerId, RoomId):
         return abort(404)
     return jsonify(room)
 
+@app.route("/api/rooms/rooms/bulk", methods=["GET"])
+@CanUseToken
+def apiroomsroomsbulk(playerId):
+    names = request.args.getlist("name")
+    rooms = []
+    for name in names:
+        room = room_API.getRoomByName(name, playerId)
+        if room is None:
+            continue
+        rooms.append(room)
+    data = rooms
+    return jsonify(data)
+
 
 @app.route("/cdn/config/LoadingScreenTipData", methods=["GET"])
 def cdnconfigLoadingScreenTipData():
@@ -498,6 +522,7 @@ def apiclubsannouncementsv2subscriptionmineunread():
 def matchmakenone(playerId):
     with open(f"{dbPath}heartbeat.json") as f:
         heartbeats = json.load(f)
+    heartbeatsd = None
     for heartbeat in heartbeats:
         if heartbeat["playerId"] == int(playerId):
             heartbeat.update({
@@ -507,7 +532,122 @@ def matchmakenone(playerId):
             })
             with open(f"{dbPath}heartbeat.json", "w") as f:
                 json.dump(heartbeats, f, indent=2)
+            heartbeatsd = heartbeat
+            break
+    websocket.sendToAllPlayers(websocket.makeNotificationSTR("PresenceUpdate", heartbeatsd))
     return jsonify({"correlationId": None})
+
+
+@app.route("/api/matchmaking/matchmake/dorm", methods=["POST"])
+@NeedToken
+@NeedLoginLock
+def matchmakedorm(playerId):
+    RoomData = room_API.getRoomByName("dormroom", playerId)
+    #if a dorm room not found make a fucking dorm room
+    if RoomData is None:
+        room_API.makeDormRoom(playerId)
+    room = room_API.getRoomByName("DormRoom", playerId)
+    if room is None:
+        return jsonify({"errorCode": 25})
+    roomInstanceId = random.randint(100000000, 999999999)
+    isPrivate = False
+    if str(room["Name"]).lower() == "dormroom":
+        CreatorAccountId = room["CreatorAccountId"]
+        CreatorAccount = account_API.getPlayerById(CreatorAccountId)
+        name = f"@{CreatorAccount['username']}'s DormRoom"
+        isPrivate = True
+    else:
+        name = room["Name"]
+    photonRoomId = "ZestRec2023-" + room["Name"] + str(room["SubRooms"][0]["SubRoomId"]) + str(room["RoomId"])
+    if isPrivate:
+        photonRoomId = f"{photonRoomId}-privateCode-{str(uuid.uuid4())}"
+    localRoomInstance = {
+        "roomInstanceId":roomInstanceId,
+        "roomId":room["RoomId"],
+        "subRoomId":room["SubRooms"][0]["SubRoomId"],
+        "location":room["SubRooms"][0]["UnitySceneId"],
+        "roomInstanceType":0,
+        "photonRegionId":"EU",
+        "photonRegion":"EU",
+        "photonRoomId":photonRoomId,
+        "name":name,
+        "maxCapacity":4,
+        "isFull":False,
+        "isPrivate":isPrivate,
+        "isInProgress":False,
+        "matchmakingPolicy":0
+    }
+    with open(f"{dbPath}heartbeat.json") as f:
+        heartbeats = json.load(f)
+    heartbeatsd = None
+    for heartbeat in heartbeats:
+        if heartbeat["playerId"] == int(playerId):
+            heartbeat.update({
+                "roomInstance": localRoomInstance,
+                "isOnline": True
+            })
+            with open(f"{dbPath}heartbeat.json", "w") as f:
+                json.dump(heartbeats, f, indent=2)
+            heartbeatsd = heartbeat
+            break
+    websocket.sendToAllPlayers(websocket.makeNotificationSTR("PresenceUpdate", heartbeatsd))
+    return jsonify({
+        "errorCode": 0,
+        "roomInstance": localRoomInstance
+    })
+
+@app.route("/api/matchmaking/matchmake/room/<int:roomId>", methods=["POST"])
+@NeedToken
+@NeedLoginLock
+def matchmakeroom(playerId, roomId):
+    try:
+        JoinMode = enums.JoinMode(int(request.form["JoinMode"]))
+    except ValueError:
+        return abort(400)
+    room = room_API.getRoomById(roomId, playerId)
+    if room is None:
+        return jsonify({"errorCode": 25})
+    roomInstanceId = random.randint(100000000, 999999999)
+    isPrivate = False
+    if JoinMode.value == enums.JoinMode.PrivateNewInstance.value:
+        isPrivate = True
+    name = room["Name"]
+    photonRoomId = "ZestRec2023-" + room["Name"] + str(room["SubRooms"][0]["SubRoomId"]) + str(room["RoomId"])
+    if isPrivate:
+        photonRoomId = f"{photonRoomId}-privateCode-{str(uuid.uuid4())}"
+    localRoomInstance = {
+        "roomInstanceId":roomInstanceId,
+        "roomId":room["RoomId"],
+        "subRoomId":room["SubRooms"][0]["SubRoomId"],
+        "location":room["SubRooms"][0]["UnitySceneId"],
+        "roomInstanceType":0,
+        "photonRegionId":"EU",
+        "photonRegion":"EU",
+        "photonRoomId":photonRoomId,
+        "name":name,
+        "maxCapacity":4,
+        "isFull":False,
+        "isPrivate":isPrivate,
+        "isInProgress":False,
+        "matchmakingPolicy":0
+    }
+    with open(f"{dbPath}heartbeat.json") as f:
+        heartbeats = json.load(f)
+    for heartbeat in heartbeats:
+        if heartbeat["playerId"] == int(playerId):
+            heartbeat.update({
+                "roomInstance": localRoomInstance,
+                "isOnline": True
+            })
+            with open(f"{dbPath}heartbeat.json", "w") as f:
+                json.dump(heartbeats, f, indent=2)
+            heartbeatsd = heartbeat
+            break
+    websocket.sendToAllPlayers(websocket.makeNotificationSTR("PresenceUpdate", heartbeatsd))
+    return jsonify({
+        "errorCode": 0,
+        "roomInstance": localRoomInstance
+    })
 
 @app.route("/api/announcement/v1/get", methods=["GET"])
 @NeedToken
@@ -538,6 +678,11 @@ def apiequipmentv2getUnlocked(playerId):
 @NeedToken
 def apiroomsroomscreatedbyme(playerId):
     return jsonify(room_API.getMyRooms(playerId))
+
+@app.route("/api/rooms/rooms/ownedby/<int:PlayerId>", methods=["GET"])
+@NeedToken
+def apiroomsroomsownedby(playerId, PlayerId):
+    return jsonify(room_API.getMyRooms(PlayerId))
 
 @app.route("/api/consumables/v2/getUnlocked", methods=["GET"])
 @NeedToken
@@ -575,7 +720,7 @@ def apisubscriptionseasonsv1seasonscurrent(playerId):
     return jsonify({
     "SubscriptionSeasonId":"d011bb29-62c4-4322-bc62-ac48de295206",
     "Name":"Test",
-    "ImageName":"5oha7hq81vwhvac4mm2hc03cu.png",
+    "ImageName":"test.jpeg",
     "StartAt":"2025-01-03T22:00:00Z",
     "NextSeasonStart":None,
     "Milestones":[]
@@ -590,6 +735,177 @@ def apicustomAvatarItemsv1isRenderingEnabled(playerId):
 @NeedToken
 def apicustomAvatarItemsv1isCreationEnabled(playerId):
     return jsonify(True)
+
+@app.route("/api/matchmaking/player/statusvisibility", methods=["PUT"])
+@NeedToken
+def apimatchmakingplayerstatusvisibility(playerId):
+    print(request.form)
+    statusVisibility = int(request.form["statusVisibility"])
+    with open(f"{dbPath}heartbeat.json") as f:
+        heartbeats = json.load(f)
+    for heartbeat in heartbeats:
+        if heartbeat["playerId"] == int(playerId):
+            heartbeat.update({
+                "lastOnline": coolStuff.getCurrentTime(),
+                "statusVisibility": statusVisibility,
+                "isOnline": True
+            })
+            with open(f"{dbPath}heartbeat.json", "w") as f:
+                json.dump(heartbeats, f, indent=2)
+            break
+    return jsonify("")
+
+@app.route("/api/images/v2/named", methods=["GET"])
+@NeedToken
+def apiimagesv2named(playerId):
+    with open(f"{dbPath}images\\named.json") as f:
+        gc = json.load(f)
+    return jsonify(gc)
+
+@app.route("/api/communityboard/v2/current", methods=["GET"])
+@NeedToken
+def apicommunityboardv2current(playerId):
+    return jsonify({"FeaturedPlayer":{"Id":1,"TitleOverride":None,"UrlOverride":None},"FeaturedRoomGroup":{"FeaturedRoomGroupId":1,"Name":"Featured Rooms","StartAt":"2025-03-10T10:01:00Z","EndAt":"2222-03-17T16:00:00Z","Rooms":[]},"CurrentAnnouncement":{"Message":"","MoreInfoUrl":""},"InstagramImages":[],"Videos":[]})
+
+@app.route("/api/moderation/voice/config", methods=["GET"])
+@NeedToken
+def apimoderationvoiceconfig(playerId):
+    return jsonify({"accountId":"","apiKey":"82c2ea94-9b51-45e1-b3c1-c16e8c504e1b","submitAppealUrl":None,"submitExternalModerationUrl":None})
+
+@app.route("/api/config/v1/azurespeech", methods=["GET"])
+@NeedToken
+def apiconfigv1azurespeech(playerId):
+    return jsonify({"Key":"dce8de5b297747d9b5bddcc7f19e8c5b","Region":"eastus","Enabled":True})
+
+@app.route("/api/roomconsumables/v1/roomConsumable/room/<int:roomid>", methods=["GET"])
+@NeedToken
+def apiroomconsumablesv1roomConsumablroom(playerId, roomid):
+    return jsonify([])
+
+@app.route("/api/roomcurrencies/v1/currencies", methods=["GET"])
+@NeedToken
+def apiroomcurrenciesv1currencies(playerId):
+    roomId = int(request.args["roomId"])
+    return jsonify([])
+
+@app.route("/api/accounts/parentalcontrol/me", methods=["GET"])
+@NeedToken
+def apiaccountsparentalcontrolme(playerId):
+    return jsonify({"accountId": playerId, "disallowInAppPurchases":True})
+
+@app.route("/api/accounts/accountprivacysettings/<int:PlayerId>", methods=["GET"])
+@NeedToken
+def apiaccountaccountprivacysettings(playerId, PlayerId):
+    return jsonify({"accountId": PlayerId, "isRecentHistoryVisible":True})
+
+@app.route("/api/clubs/subscription/mine/member", methods=["GET"])
+@NeedToken
+def apiclubssubscriptionminemember(playerId):
+    return jsonify([])
+
+@app.route("/api/keepsakes/categories", methods=["GET"])
+@NeedToken
+def apikeepsakescategories(playerId):
+    return jsonify(Results([]))
+
+@app.route("/api/roomkeys/v1/room", methods=["GET"])
+@NeedToken
+def apiroomkeysv1room(playerId):
+    roomId = int(request.args["roomId"])
+    return jsonify([])
+
+@app.route("/api/keepsakes/rooms/<int:roomId>", methods=["GET"])
+@NeedToken
+def apikeepsakesrooms(playerId, roomId):
+    return jsonify(None)
+
+@app.route("/api/keepsakes/globalconfig", methods=["GET"])
+@NeedToken
+def apikeepsakesglobalconfig(playerId):
+    return jsonify({"KeepsakeFeatureEnabled":False,"KeepsakeRoomLimit":0,"SocialXpBoostEnabled":True})
+
+
+@app.route("/api/rooms/photon_access_token", methods=["GET"])
+@NeedToken
+def apiroomsphoton_access_token(playerId):
+    with open(f"{dbPath}heartbeat.json") as f:
+        heartbeats = json.load(f)
+    for heartbeat in heartbeats:
+        if int(heartbeat["playerId"]) == playerId:
+            if heartbeat["roomInstance"] is None:
+                return "you are not in a room Instance", 404
+            permissions = []
+            print(heartbeat["roomInstance"])
+
+            PhotonAccessToken = jwt.encode({"sub": playerId,"scope": "makerpen","aud": "gay"}, key="hey")
+            data = {
+                "RoomInstanceId": heartbeat["roomInstance"]["roomInstanceId"],
+                "PhotonAccessToken": PhotonAccessToken,
+                "Permissions": permissions
+            }
+            return jsonify(data)
+    return jsonify(None)
+
+@app.route("/api/roomconsumables/v1/roomConsumable/room<int:roomId>/me", methods=["GET"])
+@NeedToken
+def apiroomconsumablesv1roomConsumableroomme(playerId, roomId):
+    return jsonify([])
+
+@app.route("/api/roomcurrencies/v1/getAllBalances", methods=["GET"])
+@NeedToken
+def apiroomcurrenciesv1getAllBalances(playerId):
+    return jsonify([])
+
+
+@app.route("/api/matchmaking/rooms/requiring/developer", methods=["GET"])
+@NeedToken
+def apimatchmakingroomsrequiringdeveloper(playerId):
+    return jsonify([])
+
+@app.route("/api/matchmaking/rooms/requiring/rrplus", methods=["GET"])
+@NeedToken
+def apimatchmakingroomsrequiringrrplus(playerId):
+    return jsonify([])
+
+@app.route("/api/clubs/<path:uri>", methods=["GET", "POST", "PUT"])
+@NeedToken
+def apiclubs(playerId,uri):
+    return jsonify([])
+
+@app.route("/api/inventions/<path:uri>", methods=["GET", "POST", "PUT"])
+@NeedToken
+def apiinventions(playerId,uri):
+    return jsonify([])
+
+@app.route("/api/customAvatarItems/<path:uri>", methods=["GET", "POST", "PUT"])
+@NeedToken
+def apicustomAvatarItems(playerId,uri):
+    return jsonify(Results([]))
+
+@app.route("/api/images/v5/player/<int:PlayerId>", methods=["GET"])
+@NeedToken
+def apiimagesv5player(playerId,PlayerId):
+    return jsonify(Results([]))
+
+@app.route("/api/storefronts/v4/balance/<int:balanceId>", methods=["GET"])
+@NeedToken
+def balance(playerId,balanceId):
+    return jsonify([{"CurrencyType":balanceId,"Platform":-1,"Balance":69420}])
+
+@app.route("/img/<path:img>", methods=["GET"])
+def img(img):
+    if os.path.exists(f"images\\{img}"):
+        try:
+            with open(f"images\\{img}", "rb") as f:
+                img__ = f.read()
+            key = "Nfg+xmv+MjqppEnorLMu6rV8x9BZRDbBPVvxOWSM/gKzadNz7FiVWvl4mr71k//yLM8og6SgWS4x9sVJu7kAigfkJYmGMD1Yue4eF6FCmdAtmiLez5hsa1g1Womt3V7TFKUfzGEH3vsO1aLgOSeCtpz8mUPjI0aUaq3dcKNQTnLsY9B8yfxiPyP/CuMhUM0zoEDhYuIpkh/WNVCajpPLRoIt+kt308WEALiUJhdcThA1opBff4bmxcnOOjgVtctVAHQnZiF8XOFa1tBpLvLVk+Uwdj915GFnTsynK+YUwimEG9PLbhrBzzvkyruCZeBz4tApazEXOGqTRwxn1neyeA=="
+            data = {'Content-Signature': f'key-id=KEY:RSA:p1.rec.net; data={key}'}
+            return Response(img__, 200, content_type="image/jpg", headers=data)
+        except:
+            return abort(500)
+    else:
+        return abort(404)
+
 
 def sendPings(ws):
     while True:
@@ -608,10 +924,8 @@ def notify(ws):
     threading.Thread(target=sendPings, args=(ws,)).start()
     while True:
         data = ws.receive()
-        if not bytes(data).endswith(b"\x1e"):
-            ws.close()
-            return
-        data = bytes(data).replace(b"\x1e", b"")
+        if bytes(data).endswith(b"\x1e"):
+            data = bytes(data).replace(b"\x1e", b"")
         print("received data: " + str(data))
         try:
             dataJson = dict(json.loads(data.decode()))

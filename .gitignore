@@ -2,3 +2,4 @@
 ns.json
 *.pyc
 /db
+/images

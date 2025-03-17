@@ -82,6 +82,19 @@ def makeNotification(id: MessageTypes2, msg: dict):
         ]
     }
 
+def makeNotificationSTR(id: str, msg: dict):
+    argument = {
+        "id": id,
+        "msg": msg
+    }
+    return {
+        "type": MessageTypes.Invocation.value,
+        "target": "Notification",
+        "arguments": [
+            json.dumps(argument)
+        ]
+    }
+
 def SubscribeToPlayers(myPlayerId: int, playerIds: int, invocationId, myws):
     for x in playerIds:
         if x == myPlayerId:
@@ -99,6 +112,7 @@ def sendToAllPlayers(jsonData):
             send(jsonData, x["ws"])
         except:
             Logger.log(Logger.Levels.ERROR, f"Oh No ws error with {x["ws"]}")
+            
 
 def send(jsonData: dict, ws):
     sendData = json.dumps(jsonData)
@@ -113,3 +127,5 @@ def send(jsonData: dict, ws):
 def sendPing(ws):
     pingData = {"type": MessageTypes.Ping.value}
     send(pingData, ws)
+
+    

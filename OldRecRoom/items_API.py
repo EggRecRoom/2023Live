@@ -12,3 +12,8 @@ def getDefaultAvatar():
         if int(item["AvatarItemId"]) in Default:
             items1.append(item)
     return items1
+
+def getAvatar():
+    with open(f"{dbPath}AvatarItems.json") as f:
+        items = json.load(f)
+    return items
